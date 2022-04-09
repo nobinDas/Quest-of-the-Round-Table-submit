@@ -1,0 +1,32 @@
+*{
+    font-family: 'Ubuntu', sans-serif;
+}
+
+
+.btn{
+    background-color: #ffffff;
+    border: 2px solid #595959;
+    border-radius: 4px;
+    color: #252525;
+    padding: 5px 5px;
+    width: 150px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    margin-bottom: 0.5rem;
+    transition-duration: 0.2s;
+}
+.btn:hover {
+    background-color: #595959;
+    color: white;
+}
+.form-group{
+    margin-bottom: 0.5rem;
+}
+.form-control{
+    margin-right: 0.5rem;
+}
+thead{
+    text-align: left;
+}
