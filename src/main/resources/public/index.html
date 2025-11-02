@@ -7,11 +7,33 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300&display=swap" rel="stylesheet">
 
-<!--  <link href="/webjars/bootstrap/css/bootstrap.min.css" rel="stylesheet">-->
-
-  <script src="/webjars/jquery/jquery.min.js"></script>
+  <!-- Add jQuery from CDN first -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  
+  <!-- Then add the WebSocket libraries -->
   <script src="/webjars/sockjs-client/sockjs.min.js"></script>
   <script src="/webjars/stomp-websocket/stomp.min.js"></script>
+  
+  <!-- Add immediate debug script -->
+  <script>
+    console.log('Debug: Page starting to load');
+    window.onerror = function(msg, url, line) {
+      console.log('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + line);
+      return false;
+    };
+    
+    // Check jQuery loading
+    window.addEventListener('load', function() {
+      console.log('Debug: Window loaded');
+      if (window.jQuery) {
+        console.log('Debug: jQuery is loaded');
+      } else {
+        console.log('Debug: jQuery is NOT loaded');
+      }
+    });
+  </script>
+  
+  <!-- Load our game logic last -->
   <script src="/socket.js"></script>
 </head>
 <body>
@@ -29,44 +51,32 @@
 <div id="main-content" class="container">
   <div id="info">
     <div class="col-md-6">
-      <form class="form-inline">
-        <div class="form-group">
-          <input type="text" id="name" class="form-control" placeholder="What is your name..">
-          <input type="text" id="num" class="form-control" placeholder="Number Of Players..">
-          <button id="send" class="btn btn-default" type="submit">Make New Game</button>
-        </div>
-      </form>
+      <div class="form-group">
+        <input type="text" id="name" class="form-control" placeholder="What is your name..">
+        <input type="text" id="num" class="form-control" placeholder="Number Of Players..">
+        <button id="send" class="btn btn-default" type="button">Make New Game</button>
+      </div>
     </div>
 
     <div class="col-md-6">
-      <form class="form-inline">
-        <div class="form-group">
-
-        </div>
-      </form>
-    </div>
-
-    <div class="col-md-6">
-      <form class="form-inline">
-        <div class="form-group">
-          <input type="text" id="joincode" class="form-control" placeholder="Game ID..">
-          <button id="code" class="btn btn-default" type="submit">Join Game</button>
-        </div>
-      </form>
+      <div class="form-group">
+        <input type="text" id="joincode" class="form-control" placeholder="Game ID..">
+        <button id="code" class="btn btn-default" type="button">Join Game</button>
+      </div>
     </div>
   </div>
 
   <div class="row">
     <div class="col-md-12">
       <table id="conversation" class="table table-striped">
-
         <thead id="gameID">
         <tr>
-          <th>Game ID:</th>
+          <th>Current Game ID:</th>
         </tr>
         </thead>
         <tbody id="greetings">
         </tbody>
+        <div id="gameIdDisplay" style="font-size: 24px; margin: 20px 0; padding: 10px; background-color: #f0f0f0; border-radius: 5px;"></div>
 
         <div id="adventure_cards">
           <thead>
@@ -100,13 +110,11 @@
 
 
         <div class="col-md-6">
-          <form class="form-inline">
-            <div class="form-group">
-              <label for="discardCard">Discard/Select Card:</label>
-              <input type="text" id="discardCard" class="form-control" placeholder="Index of card">
-              <button id="discard" class="btn btn-default" type="submit">discard card</button>
-            </div>
-          </form>
+          <div class="form-group">
+            <label for="discardCard">Discard/Select Card:</label>
+            <input type="text" id="discardCard" class="form-control" placeholder="Index of card">
+            <button id="discard" class="btn btn-default" type="button">discard card</button>
+          </div>
         </div>
 
         <div>

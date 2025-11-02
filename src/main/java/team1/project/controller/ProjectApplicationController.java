@@ -255,9 +255,16 @@ public class ProjectApplicationController {
     @PostMapping("/game/connect")
     public ResponseEntity<Game> connect(@RequestBody ConnectRequest request) throws InvalidParamException, InvalidGameException {
         log.info("connect request: {}", request);
-        ResponseEntity<Game> test = ResponseEntity.ok(gameService.connectToGame(request.getPlayer(), request.getGameId()));
-        System.out.println(test);
-        return test;
+        try {
+            Game game = gameService.connectToGame(request.getPlayer(), request.getGameId());
+            return ResponseEntity.ok(game);
+        } catch (InvalidParamException e) {
+            log.error("Invalid game ID: {}", request.getGameId());
+            throw new InvalidParamException("Game with ID '" + request.getGameId() + "' does not exist");
+        } catch (InvalidGameException e) {
+            log.error("Cannot join game: {}", e.getMessage());
+            throw new InvalidGameException("Cannot join game: " + e.getMessage());
+        }
     }
 
     /*@MessageMapping("/progress")

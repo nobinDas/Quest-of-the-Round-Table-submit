@@ -5,20 +5,26 @@ import org.springframework.stereotype.Service;
 import team1.project.exception.InvalidGameException;
 import team1.project.exception.InvalidParamException;
 
-import java.util.Scanner;
-import java.util.UUID;
-
 import static team1.project.models.GameStatus.*;
 
 @Service
 @AllArgsConstructor
 public class GameService {
-    private static Scanner scanner;
 
+
+    private String generateSimpleGameId() {
+        // Generate a random number between 100 and 999
+        return String.format("%03d", (int) (Math.random() * 900) + 100);
+    }
 
     public Game createGame(Player player, int num_players){
         Game game = new Game(player, num_players);
-        game.setGameId("New Game");
+        String gameId = generateSimpleGameId();
+        while (GameStorage.getInstance().getGames().containsKey(gameId)) {
+            // If ID already exists, generate a new one
+            gameId = generateSimpleGameId();
+        }
+        game.setGameId(gameId);
         System.out.println(game.getGameId());
         System.out.println("This is the game created in createGame: "+game);
         game.createPlayer(player);
