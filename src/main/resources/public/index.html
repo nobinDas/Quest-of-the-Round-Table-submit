@@ -144,28 +144,14 @@
             <button id="Bid_button" class="btn btn-default" type="submit">Bid</button>
           </div>
 
-          <div id="cards_index" style="display:none">
-            <b> choose cards for Quest:</b><br>
-            <input id="cards_input" type="text">
-            <button id="cards_button" class="btn btn-default" type="submit">Select Cards</button>
-          </div>
-
-          <div id="cards_index2" style="display:none">
-            <b> Select Ally or Amour to play:</b><br>
-            <input id="cards_input2" type="text">
-            <button id="cards_button2" class="btn btn-default" type="submit">Select Ally/Amour</button>
-          </div>
-
-          <div id="cards_index3" style="display:none">
-            <b> choose cards for Tournament:</b><br>
-            <input id="cards_input3" type="text">
-            <button id="cards_button3" class="btn btn-default" type="submit">Select Cards</button>
-          </div>
-
-          <div id="cards_index4" style="display:none">
-            <b> choose cards to discard:</b><br>
-            <input type="text" id="cards_input4" placeholder="e.i. 1,5,6">
-            <button id="cards_button4" class="btn btn-default" type="submit">discard card</button>
+          <div id="card-picker" style="display:none">
+            <div id="picker-status"></div>
+            <div id="picker-card-list"></div>
+            <div class="picker-btn-row">
+              <button id="picker-next-btn" class="btn" onclick="pickerNextStage()" style="display:none">Next Stage &rarr;</button>
+              <button id="picker-confirm-btn" class="btn" onclick="pickerConfirm()">Confirm</button>
+              <button id="picker-clear-btn" class="btn" onclick="pickerClear()">Clear</button>
+            </div>
           </div>
 
         </div>

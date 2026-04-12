@@ -16,6 +16,22 @@ let currPlayer = 0;
 let gameId;
 let playersJoined;
 
+// Current hand cards (kept in sync whenever the hand is re-rendered)
+let currentHandCards = [];
+
+// ===== Card Picker State =====
+let pickerMode = null;          // 'quest-sponsor' | 'quest-player' | 'tournament' | 'discard' | 'ally-amour'
+let pickerCurrentCards = [];    // snapshot of hand at time picker was opened
+let pickerSelectedIndices = new Set();
+let pickerUsedIndices = new Set();  // indices already committed to earlier stages (sponsor multi-stage)
+let pickerNumStages = 0;
+let pickerCurrentStage = 0;
+let pickerStageSelections = [];
+let pickerMaxSelect = -1;       // -1 = no limit
+let pickerContextMsg = '';      // extra context message (e.g. BP requirements)
+let pickerQuestData = null;     // holds game data while sponsor/player is choosing
+let storyCardDrawerID = -1;    // ID of the player who drew the current story card (broadcast to all clients)
+
 // Debug function with timestamp - console only
 function debugLog(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -73,22 +89,16 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                 console.log("data.test: " + data.test);
                 if (data.test == true) {
                     stompClient.send("/topic/group/" + data.playWinner[0].id.toString() + "/bidCards", {}, JSON.stringify(data));
+                    // turn advances after TestDiscard completes — do NOT advance here
+                } else {
+                    // Quest or tournament fully resolved — advance turn
+                    if (parseInt($("#player_id").text()) == storyCardDrawerID) {
+                        advanceTurn();
+                    }
                 }
 
                 sponsorPlayerID = null;
-
                 TookStoryCard = false;
-                // coming back
-
-                /*currPlayer += 1;
-                if(currPlayer==totalPlayers){
-                                currPlayer = 0;
-                            }
-                                console.log(currPlayer);
-                                console.log("First");
-                                stompClient.send("/topic/group/showCard/" + currPlayer, {},  JSON.stringify(currPlayer));*/
-
-
                 return;
             }
 
@@ -97,14 +107,10 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                 sponsorPlayerID = null;
                 TookStoryCard = false;
                 $("#storyCard").empty();
-                //$("#getStoryCard").hide();
-                /*currPlayer += 1;
-                if(currPlayer==totalPlayers){
-                                currPlayer = 0;
-                            }
-                                console.log(currPlayer);
-                                console.log("Second");
-                                stompClient.send("/topic/group/showCard/" + currPlayer, {},  JSON.stringify("Show Story Card"));*/
+                // Only the story card drawer advances the turn
+                if (parseInt($("#player_id").text()) == storyCardDrawerID) {
+                    advanceTurn();
+                }
                 return;
             }
 
@@ -155,41 +161,15 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
             let data = JSON.parse(response.body);
             data = data.players[parseInt($("#player_id").text())].inHandCards;
             console.log(data);
-            $("#deck").empty();
-            for (let i = 0; i < data.length; i++) {
-
-                if (data[i].cardType == "ADVENTURE_FOE") {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + data[i].battleStrengthMin + "</td></tr>");
-                } else if (data[i].cardType == "ADVENTURE_AMOUR") {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + 10 + "</td></tr>");
-                }
-                else {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + data[i].battlePoints + "</td></tr>");
-                }
-
-            }
-
+            currentHandCards = data;
+            renderDeck(data);
         });
 
         stompClient.subscribe("/topic/group/" + playerName, function (response) {
             let data = JSON.parse(response.body);
             console.log(data);
-            $("#deck").empty();
-            for (let i = 0; i < data.length; i++) {
-
-                if (data[i].cardType == "ADVENTURE_FOE") {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + data[i].battleStrengthMin + "</td></tr>");
-                } else if (data[i].cardType == "ADVENTURE_AMOUR") {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + 10 + "</td></tr>");
-                }
-                else {
-                    $("#deck").append("<tr><td>" + i + ". " + data[i].name + ", " + data[i].cardType + ", " + data[i].battlePoints + "</td></tr>");
-                }
-
-            }
-
-
-
+            currentHandCards = data;
+            renderDeck(data);
         });
 
         stompClient.subscribe("/topic/group/showCard/" + playerName, function (response) {
@@ -226,7 +206,7 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                     console.log("story event card!!");
                     askQuestions(data, "event card");
                     Event(data.name);
-                    $("#cards_index").hide();
+                    $("#card-picker").hide();
                 }
                 //tournament card in play
                 else if (data.cardType == "STORY_TOURNAMENT") {
@@ -238,12 +218,14 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
             }
         });
 
+        // Sync storyCardDrawerID across all clients so any client can coordinate turn end
+        stompClient.subscribe("/topic/storyCardDrawer", function (response) {
+            storyCardDrawerID = JSON.parse(response.body);
+        });
+
         stompClient.subscribe("/topic/group/" + playerName + "/bidCards", function (response) {
-            let data = JSON.parse(response.body);
-
-            //ask test winner to choose cards to discard
-            $("#cards_index4").show();
-
+            // ask test winner to choose cards to discard as their bid payment
+            openCardPicker('discard', currentHandCards, { contextMsg: 'Select the cards you are discarding as your bid.' });
         });
 
         stompClient.subscribe("/topic/group/" + playerName + "/testBid", function (response) {
@@ -266,24 +248,39 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                     stompClient.send("/topic/progress", {}, JSON.stringify("Nobody wants to sponsor the quest"));
                     return;
                 }
-                //ask sponsor to choose card for story
-                $("#cards_index").show();
+                // ask sponsor to pick cards for each quest stage
+                pickerQuestData = data;
+                let numStages = (QuestCard && QuestCard.noOfStages) ? QuestCard.noOfStages : 1;
+                openCardPicker('quest-sponsor', currentHandCards, {
+                    numStages: numStages,
+                    contextMsg: 'Build each quest stage: pick a Foe (required) and optional Weapon cards per stage.'
+                });
                 return;
-
             }
-
 
             else {
                 for (i = 0; i < data.playersInStory.length; i++) {
                     if (parseInt($("#player_id").text()) == data.playersInStory[i].id) {
-                        //ask players in story to choose their card
+                        pickerQuestData = data;
+                        // Total quest stages minus any test stage
+                        let totalStages = (data.currentStoryCard && data.currentStoryCard.noOfStages)
+                            ? data.currentStoryCard.noOfStages : 1;
+                        let hasTest = data.test || false;
+                        let numPlayerStages = totalStages - (hasTest ? 1 : 0);
 
-                        //if the player is not matched then asks the question
+                        // Show stage BP targets in the Questions area
+                        let stageBPs = data.sponsorStageBattlePoints;
+                        if (stageBPs && stageBPs.length > 0) {
+                            let bpStr = stageBPs.map(function(bp, idx) {
+                                return 'Stage ' + (idx + 1) + ': <b>' + bp + ' BP</b>';
+                            }).join(' &nbsp;|&nbsp; ');
+                            $("#Messages").html('Stage targets to beat: ' + bpStr);
+                        }
 
-                        $("#Questions").empty();
-                        $("#Questions").append(data.message);
-
-                        $("#cards_index").show();
+                        openCardPicker('quest-player', currentHandCards, {
+                            numStages: numPlayerStages,
+                            contextMsg: 'Choose Weapons, Allies, Amours for each quest stage. Foes and Tests not allowed.'
+                        });
                         return;
                     }
                 }
@@ -321,7 +318,10 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                 }
                 stompClient.send("/topic/progress", {}, JSON.stringify(data));
             } else {
-                $("#cards_index3").show();
+                pickerQuestData = data;
+                openCardPicker('tournament', currentHandCards, {
+                    contextMsg: 'Choose the cards you will play in the tournament. Higher total BP wins.'
+                });
             }
         });
 
@@ -391,24 +391,9 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
             let data = JSON.parse(response.body);
             console.log(data);
             //$("#discardPile").empty();
-            $("#deck").empty();
             let players = data.players[playerName];
-
-            /*for (let i = 0; i < players.inHandCards.length; i++){
-                              $("#deck").append("<tr><td>" + i + ". " + players.inHandCards[i].name + ", " + players.inHandCards[i].cardType + players.inHandCards[i].battlePoints + "</td></tr>");
-                              }*/
-            for (let i = 0; i < players.inHandCards.length; i++) {
-
-                if (players.inHandCards[i].cardType == "ADVENTURE_FOE") {
-                    $("#deck").append("<tr><td>" + i + ". " + players.inHandCards[i].name + ", " + players.inHandCards[i].cardType + ", " + players.inHandCards[i].battleStrengthMin + "</td></tr>");
-                } else if (players.inHandCards[i].cardType == "ADVENTURE_AMOUR") {
-                    $("#deck").append("<tr><td>" + i + ". " + players.inHandCards[i].name + ", " + players.inHandCards[i].cardType + ", " + 10 + "</td></tr>");
-                }
-                else {
-                    $("#deck").append("<tr><td>" + i + ". " + players.inHandCards[i].name + ", " + players.inHandCards[i].cardType + players.inHandCards[i].battlePoints + "</td></tr>");
-                }
-
-            }
+            currentHandCards = players.inHandCards;
+            renderDeck(players.inHandCards);
             $("#ranks").empty();
             const winners = [];
             for (let i = 0; i < data.players.length; i++) {
@@ -421,19 +406,18 @@ function connect(gameId, playersJoined, totalNumPlayers, playerName) {
                 }
             }
 
-
             if (winners.length > 0) {
                 let victors = "";
                 for (let p = 0; p < winners.length; p++) {
                     victors += winners[p] + " ";
                 }
                 alert("The Winner(s) of the game is: " + victors)
-
-
             }
 
-
-
+            // Event cards resolve instantly — advance turn after all clients update
+            if (parseInt($("#player_id").text()) == storyCardDrawerID) {
+                advanceTurn();
+            }
         });
 
         if (playersJoined == totalNumPlayers) {
@@ -538,15 +522,17 @@ function discardCard() {
 
 }
 
-function selectAlly() {
-
-    let card = document.getElementById("discardCard").value;
-    //console.log("response cards...."+card);
-    let playerID = $("#player_id").text();
-    if (card == null) {
+function selectAlly(cardIndexStr) {
+    // If called with no arg, open the picker instead
+    if (cardIndexStr === undefined) {
+        openCardPicker('ally-amour', currentHandCards, {
+            contextMsg: 'Select one Ally or Amour card to play.'
+        });
         return;
     }
-    //stompClient.send("/topic/group/" + playerID.trim() + "/discard", {}, JSON.stringify(card));
+
+    let card = cardIndexStr;
+    let playerID = $("#player_id").text();
     $.ajax({
         url: url + "/topic/group/select",
         type: 'POST',
@@ -588,9 +574,9 @@ function selectAlly() {
     })
 }
 
-function TournamentCards() {
-    $("#cards_index3").hide();
-    let card = document.getElementById("cards_input3").value;
+function TournamentCards(cardStr) {
+    $("#card-picker").hide();
+    let card = cardStr;
     console.log("response cards...." + card);
     let playerID = $("#player_id").text();
     console.log("passing player: " + playerID);
@@ -633,12 +619,12 @@ function TournamentCards() {
     })
 }
 
-function chooseCards() {
+function chooseCards(cardStr) {
     $("#Questions").empty();
-    $("#cards_index").hide();
+    $("#card-picker").hide();
     $("#Messages").empty();  // Clear messages div right away
-    
-    let card = document.getElementById("cards_input").value;
+
+    let card = cardStr;
     console.log("response cards...." + card);
     let playerID = $("#player_id").text();
     console.log("passing player: " + playerID);
@@ -787,9 +773,9 @@ function TestBid() {
     })
 }
 
-function TestDiscard() {
-    $("#cards_index4").hide()
-    let card = document.getElementById("cards_input4").value;
+function TestDiscard(cardStr) {
+    $("#card-picker").hide();
+    let card = cardStr;
     console.log("response cards...." + card);
     let playerID = $("#player_id").text();
     console.log("passing player: " + playerID);
@@ -807,6 +793,8 @@ function TestDiscard() {
         success: function (data) {
             stompClient.send("/topic/group/" + playerID.trim(), {}, JSON.stringify(data.players[parseInt($("#player_id").text())].inHandCards));
             stompClient.send("/topic/group/discardPile", {}, JSON.stringify(data.discardedAdventureCardList));
+            // Test bid payment is the final step of a test-quest turn — advance to next player
+            advanceTurn();
         },
         error: function (error) {
             alert("its an error");
@@ -839,10 +827,22 @@ function getAdventureCard() {
     })
 }
 
+// Advance turn to the player after the story card drawer and show their story card button.
+// Called only once per turn, at the true end of each card resolution.
+function advanceTurn() {
+    let nextPlayer = (storyCardDrawerID + 1) % totalPlayers;
+    currPlayer = nextPlayer;
+    stompClient.send("/topic/group/showCard/" + nextPlayer, {}, JSON.stringify(nextPlayer));
+}
+
 function getStoryCard() {
     let playerID = $("#player_id").text();
     console.log(playerID);
     $("#getStoryCard").hide();
+
+    // Broadcast who drew this story card so all clients can coordinate turn advancement
+    storyCardDrawerID = parseInt(playerID);
+    stompClient.send("/topic/storyCardDrawer", {}, JSON.stringify(storyCardDrawerID));
 
     $.ajax({
         url: url + "/topic/group/getStoryCard",
@@ -864,16 +864,7 @@ function getStoryCard() {
             console.log(error);
         }
     })
-
-    currPlayer += 1;
-    if (currPlayer == totalPlayers) {
-        currPlayer = 0;
-    }
-    console.log(currPlayer);
-    console.log("Event show story card");
-    stompClient.send("/topic/group/showCard/" + currPlayer, {}, JSON.stringify(currPlayer));
-
-
+    // NOTE: advanceTurn() is NOT called here. It is called at each card-resolution endpoint below.
 }
 
 function Quest() {
@@ -958,6 +949,346 @@ function Event(eventName) {
 
 function refreshCards() {
 
+}
+
+// ===== Deck Renderer (shared by all subscriptions) =====
+function renderDeck(cards) {
+    $("#deck").empty();
+    for (let i = 0; i < cards.length; i++) {
+        let bp;
+        if (cards[i].cardType === "ADVENTURE_FOE") {
+            bp = cards[i].battleStrengthMin;
+        } else if (cards[i].cardType === "ADVENTURE_AMOUR") {
+            bp = 10;
+        } else {
+            bp = cards[i].battlePoints;
+        }
+        $("#deck").append("<tr><td>" + i + ". " + cards[i].name + ", " + cards[i].cardType + ", " + bp + "</td></tr>");
+    }
+}
+
+// ===== Card Picker Functions =====
+
+function getCardBP(card) {
+    if (card.cardType === "ADVENTURE_FOE") return card.battleStrengthMin || 0;
+    if (card.cardType === "ADVENTURE_AMOUR") return 10;
+    return card.battlePoints || 0;
+}
+
+function getPickerSelectedBP() {
+    let total = 0;
+    pickerSelectedIndices.forEach(function(i) { total += getCardBP(pickerCurrentCards[i]); });
+    return total;
+}
+
+function openCardPicker(mode, cards, options) {
+    options = options || {};
+    pickerMode = mode;
+    pickerCurrentCards = cards.slice();
+    pickerSelectedIndices = new Set();
+    pickerUsedIndices = new Set();
+    pickerCurrentStage = 0;
+    pickerStageSelections = [];
+    pickerNumStages = options.numStages || 1;
+    pickerMaxSelect = (options.maxSelect !== undefined) ? options.maxSelect : -1;
+    pickerContextMsg = options.contextMsg || '';
+
+    $("#Questions").empty();
+    if (pickerContextMsg) {
+        $("#Questions").append("<p>" + pickerContextMsg + "</p>");
+    }
+    $("#card-picker").show();
+    renderPickerCards();
+    updatePickerStatus();
+}
+
+function renderPickerCards() {
+    let html = '';
+    for (let i = 0; i < pickerCurrentCards.length; i++) {
+        let card = pickerCurrentCards[i];
+        let bp = getCardBP(card);
+        let selected = pickerSelectedIndices.has(i);
+        let used = pickerUsedIndices.has(i);
+        let disabled = used || isPickerCardDisabled(i, card);
+
+        let cls = 'card-item';
+        if (selected) cls += ' card-selected';
+        if (disabled) cls += ' card-disabled';
+
+        let bpLabel = bp > 0 ? bp + ' BP' : '';
+        let usedLabel = used ? ' <em style="color:#aaa;font-size:0.8em">(stage ' + getUsedStageLabel(i) + ')</em>' : '';
+
+        html += '<div class="' + cls + '" tabindex="' + (disabled ? '-1' : '0') + '" data-idx="' + i + '"'
+              + ' onclick="togglePickerCard(' + i + ')"'
+              + ' onkeydown="handlePickerKey(event,' + i + ')">'
+              + '<span class="card-idx">' + i + '.</span>'
+              + '<span class="card-name">' + card.name + usedLabel + '</span>'
+              + '<span class="card-type-label">' + card.cardType + '</span>'
+              + '<span class="card-bp-val">' + bpLabel + '</span>'
+              + '</div>';
+    }
+    $("#picker-card-list").html(html);
+}
+
+function getUsedStageLabel(idx) {
+    for (let s = 0; s < pickerStageSelections.length; s++) {
+        if (pickerStageSelections[s].indexOf(idx) !== -1) return (s + 1);
+    }
+    return '?';
+}
+
+function isPickerCardDisabled(idx, card) {
+    // Already-selected cards can always be toggled off
+    if (pickerSelectedIndices.has(idx)) return false;
+
+    if (pickerMode === 'discard') return false;
+
+    if (pickerMode === 'ally-amour') {
+        return card.cardType !== 'ADVENTURE_ALLY' && card.cardType !== 'ADVENTURE_AMOUR';
+    }
+
+    if (pickerMode === 'quest-sponsor') {
+        // Allies and Amours are never placed by the sponsor
+        if (card.cardType === 'ADVENTURE_ALLY' || card.cardType === 'ADVENTURE_AMOUR') return true;
+
+        let hasFoe = false, hasTest = false;
+        let usedWeaponNames = new Set();
+        pickerSelectedIndices.forEach(function(i) {
+            let c = pickerCurrentCards[i];
+            if (c.cardType === 'ADVENTURE_FOE') hasFoe = true;
+            if (c.cardType === 'ADVENTURE_TEST') hasTest = true;
+            if (c.cardType === 'ADVENTURE_WEAPON') usedWeaponNames.add(c.name);
+        });
+
+        if (hasTest) return true;  // test stage: nothing else allowed
+        if (hasFoe && card.cardType === 'ADVENTURE_FOE') return true;  // already have a foe
+        if (hasFoe && card.cardType === 'ADVENTURE_TEST') return true;  // foe chosen, no test
+        if (card.cardType === 'ADVENTURE_WEAPON' && usedWeaponNames.has(card.name)) return true;  // duplicate weapon
+
+        return false;
+    }
+
+    if (pickerMode === 'quest-player' || pickerMode === 'tournament') {
+        // Foes and Tests are never played by adventuring players
+        if (card.cardType === 'ADVENTURE_FOE' || card.cardType === 'ADVENTURE_TEST') return true;
+
+        // No duplicate weapon names per stage
+        if (card.cardType === 'ADVENTURE_WEAPON') {
+            let usedWeaponNames = new Set();
+            pickerSelectedIndices.forEach(function(i) {
+                let c = pickerCurrentCards[i];
+                if (c.cardType === 'ADVENTURE_WEAPON') usedWeaponNames.add(c.name);
+            });
+            return usedWeaponNames.has(card.name);
+        }
+
+        return false;
+    }
+
+    return false;
+}
+
+function togglePickerCard(idx) {
+    let card = pickerCurrentCards[idx];
+    // used-in-prior-stage cards and truly-disabled cards cannot be toggled
+    // (selected cards are never disabled so they can always be deselected)
+    if (pickerUsedIndices.has(idx)) return;
+    if (!pickerSelectedIndices.has(idx) && isPickerCardDisabled(idx, card)) return;
+
+    if (pickerSelectedIndices.has(idx)) {
+        pickerSelectedIndices.delete(idx);
+    } else {
+        if (pickerMode === 'ally-amour') {
+            pickerSelectedIndices.clear();
+        }
+        if (pickerMaxSelect > 0 && pickerSelectedIndices.size >= pickerMaxSelect) return;
+        pickerSelectedIndices.add(idx);
+    }
+    // Re-render fully so disabled states update (e.g. selecting a Foe grays other Foes)
+    renderPickerCards();
+    updatePickerStatus();
+}
+
+function handlePickerKey(event, idx) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        togglePickerCard(idx);
+    } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        let next = idx + 1;
+        while (next < pickerCurrentCards.length && pickerUsedIndices.has(next)) next++;
+        if (next < pickerCurrentCards.length) $('[data-idx="' + next + '"]').focus();
+    } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        let prev = idx - 1;
+        while (prev >= 0 && pickerUsedIndices.has(prev)) prev--;
+        if (prev >= 0) $('[data-idx="' + prev + '"]').focus();
+    }
+}
+
+function updatePickerStatus() {
+    let bp = getPickerSelectedBP();
+    let count = pickerSelectedIndices.size;
+    let msg = '';
+
+    if (pickerMode === 'quest-sponsor') {
+        let stageStr = 'Stage ' + (pickerCurrentStage + 1) + ' of ' + pickerNumStages;
+
+        // Analyse what's already selected this stage
+        let hasFoe = false, hasTest = false, weaponNames = [];
+        pickerSelectedIndices.forEach(function(i) {
+            let c = pickerCurrentCards[i];
+            if (c.cardType === 'ADVENTURE_FOE') { hasFoe = true; }
+            if (c.cardType === 'ADVENTURE_TEST') { hasTest = true; }
+            if (c.cardType === 'ADVENTURE_WEAPON') weaponNames.push(c.name);
+        });
+
+        if (hasTest) {
+            msg = '<b>' + stageStr + '</b> — '
+                + '<span style="color:#8e44ad">TEST stage</span>: players will bid instead of fight. '
+                + 'No weapons needed. Click <b>Next Stage</b> (or <b>Confirm</b> on last stage) to continue.';
+        } else if (hasFoe) {
+            msg = '<b>' + stageStr + '</b> — Foe selected. <b>' + bp + ' BP</b>. '
+                + (weaponNames.length > 0
+                    ? 'Weapons: ' + weaponNames.join(', ') + '. '
+                    : '')
+                + 'Add more Weapons to raise stage BP, or advance to next stage. '
+                + '<em style="color:#777">Duplicate weapon types are disabled.</em>';
+        } else {
+            msg = '<b>' + stageStr + '</b> — '
+                + '<span style="color:#c0392b">No Foe yet.</span> '
+                + 'Select <b>1 Foe</b> (required) OR <b>1 Test card</b>. '
+                + 'Then optionally add Weapons. Allies &amp; Amours not allowed in stages.';
+        }
+
+        let hasNextStage = pickerCurrentStage < pickerNumStages - 1;
+        $("#picker-next-btn").toggle(hasNextStage);
+        $("#picker-confirm-btn").toggle(!hasNextStage);
+
+    } else if (pickerMode === 'quest-player') {
+        let stageStr = pickerNumStages > 1
+            ? 'Stage ' + (pickerCurrentStage + 1) + ' of ' + pickerNumStages
+            : 'Quest Attack';
+
+        // Collect stage BP targets if available
+        let targetBP = 0;
+        if (pickerQuestData && pickerQuestData.sponsorStageBattlePoints
+                && pickerQuestData.sponsorStageBattlePoints[pickerCurrentStage]) {
+            targetBP = pickerQuestData.sponsorStageBattlePoints[pickerCurrentStage];
+        }
+
+        let weaponNames = [];
+        pickerSelectedIndices.forEach(function(i) {
+            let c = pickerCurrentCards[i];
+            if (c.cardType === 'ADVENTURE_WEAPON') weaponNames.push(c.name);
+        });
+
+        if (count === 0) {
+            msg = '<b>' + stageStr + '</b> — '
+                + 'Pick <b>Weapons</b>, <b>Allies</b>, or <b>Amours</b>. '
+                + 'Foes and Tests are disabled. No duplicate weapon types per stage.'
+                + (targetBP > 0 ? ' <em>Stage target: ' + targetBP + ' BP</em>' : '');
+        } else {
+            let diff = targetBP > 0 ? targetBP - bp : null;
+            msg = '<b>' + stageStr + '</b> — <b>' + bp + ' BP</b> selected'
+                + (weaponNames.length > 0 ? ' (Weapons: ' + weaponNames.join(', ') + ')' : '')
+                + (diff !== null
+                    ? (diff > 0
+                        ? ' — need <b style="color:#c0392b">' + diff + ' more BP</b> to beat this stage'
+                        : ' — <b style="color:#27ae60">stage target met ✓</b>')
+                    : '');
+        }
+
+        let hasNextStage = pickerNumStages > 1 && pickerCurrentStage < pickerNumStages - 1;
+        $("#picker-next-btn").toggle(hasNextStage);
+        $("#picker-confirm-btn").toggle(!hasNextStage);
+
+    } else if (pickerMode === 'tournament') {
+        if (count === 0) {
+            msg = '<b>Tournament</b> — Pick <b>Weapons</b>, <b>Allies</b>, or <b>Amours</b>. '
+                + 'No Foes or Tests. No duplicate weapon types. Highest total BP wins.';
+        } else {
+            let weaponNames = [];
+            pickerSelectedIndices.forEach(function(i) {
+                let c = pickerCurrentCards[i];
+                if (c.cardType === 'ADVENTURE_WEAPON') weaponNames.push(c.name);
+            });
+            msg = '<b>Tournament</b> — <b>' + bp + ' BP</b> selected'
+                + (weaponNames.length > 0 ? ' (Weapons: ' + weaponNames.join(', ') + ')' : '')
+                + '. Duplicate weapon types are disabled.';
+        }
+        $("#picker-next-btn").hide();
+        $("#picker-confirm-btn").show();
+
+    } else if (pickerMode === 'discard') {
+        msg = '<b>Discard (bid payment)</b> — '
+            + (count === 0
+                ? 'Select the cards you are discarding as your bid cost. Any card type allowed.'
+                : count + ' card(s) selected. Click <b>Confirm</b> when done.');
+        $("#picker-next-btn").hide();
+        $("#picker-confirm-btn").show();
+
+    } else if (pickerMode === 'ally-amour') {
+        msg = '<b>Play Ally / Amour</b> — '
+            + (count === 1
+                ? 'Ready. Click <b>Confirm</b> to move this card to In-Play.'
+                : 'Select <b>one</b> Ally or Amour card. Other card types are disabled.');
+        $("#picker-next-btn").hide();
+        $("#picker-confirm-btn").show();
+    }
+
+    $("#picker-status").html(msg);
+}
+
+function pickerClear() {
+    pickerSelectedIndices.clear();
+    renderPickerCards();
+    updatePickerStatus();
+}
+
+function pickerNextStage() {
+    if (pickerMode !== 'quest-sponsor') return;
+    let stage = [...pickerSelectedIndices];
+    pickerStageSelections.push(stage);
+    stage.forEach(function(i) { pickerUsedIndices.add(i); });
+    pickerCurrentStage++;
+    pickerSelectedIndices.clear();
+    renderPickerCards();
+    updatePickerStatus();
+}
+
+function pickerConfirm() {
+    let mode = pickerMode;
+    pickerMode = null;
+
+    if (mode === 'quest-sponsor') {
+        pickerStageSelections.push([...pickerSelectedIndices]);
+        let cardStr = pickerStageSelections
+            .map(function(stage) { return stage.join(','); })
+            .join(' ');
+        chooseCards(cardStr);
+
+    } else if (mode === 'quest-player') {
+        let cardStr = [...pickerSelectedIndices].join(',');
+        chooseCards(cardStr);
+
+    } else if (mode === 'tournament') {
+        let cardStr = [...pickerSelectedIndices].join(',');
+        TournamentCards(cardStr);
+
+    } else if (mode === 'discard') {
+        let cardStr = [...pickerSelectedIndices].join(',');
+        TestDiscard(cardStr);
+
+    } else if (mode === 'ally-amour') {
+        let idx = [...pickerSelectedIndices][0];
+        if (idx !== undefined) {
+            selectAlly(idx.toString());
+        }
+    }
+
+    $("#card-picker").hide();
+    $("#Questions").empty();
 }
 
 

@@ -2,6 +2,56 @@
     font-family: 'Ubuntu', sans-serif;
 }
 
+/* Hide scrollbar visually but keep scrolling functional */
+body {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+body::-webkit-scrollbar { display: none; }
+
+/* ===== Interactive Card Items ===== */
+.card-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    margin: 3px 0;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    background: #fff;
+    transition: border-color 0.12s, background 0.12s;
+    outline: none;
+}
+.card-item:hover:not(.card-disabled) { border-color: #595959; background: #f5f5f5; }
+.card-item:focus { border-color: #3498db; box-shadow: 0 0 0 2px rgba(52,152,219,0.3); }
+.card-item.card-selected { border-color: #27ae60; background: #d5f5e3; }
+.card-item.card-disabled { opacity: 0.38; cursor: not-allowed; }
+.card-idx  { min-width: 24px; font-weight: bold; color: #aaa; font-size: 0.85em; }
+.card-name { flex: 1; font-weight: 500; }
+.card-type-label { color: #888; font-size: 0.82em; min-width: 90px; }
+.card-bp-val { font-weight: bold; color: #c0392b; min-width: 56px; text-align: right; font-size: 0.9em; }
+
+/* ===== Card Picker Panel ===== */
+#card-picker {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 2px solid #595959;
+    border-radius: 8px;
+    background: #fafafa;
+}
+#picker-status {
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    font-size: 0.97em;
+    line-height: 1.5;
+}
+.picker-btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
 
 .btn{
     background-color: #ffffff;

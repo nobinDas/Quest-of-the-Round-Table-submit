@@ -252,6 +252,17 @@ public class ProjectApplicationController {
     }
 
 
+    /**
+     * Mordred effect: sponsor removes an ally from a target player's in-play cards.
+     * Request body: { "player": "<targetPlayerId>", "card": "<allyIndex>" }
+     */
+    @PostMapping("/topic/group/mordredAlly")
+    public ResponseEntity<Game> mordredAlly(@RequestBody cardRequest request){
+        log.info("Mordred ally removal request: {}", request);
+        Game game = gameService.removeMordredAlly(request.getPlayer(), request.getCard());
+        return ResponseEntity.ok(game);
+    }
+
     @PostMapping("/game/connect")
     public ResponseEntity<Game> connect(@RequestBody ConnectRequest request) throws InvalidParamException, InvalidGameException {
         log.info("connect request: {}", request);

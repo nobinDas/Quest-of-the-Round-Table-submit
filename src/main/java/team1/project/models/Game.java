@@ -51,9 +51,28 @@ public class Game {
     private boolean skip = false;
 
     // 2D Array list for the sponsor cards in a quest
-    // each item in the questTotalStages consist of a mini Array list
-    // One Array for the total Quest stages, and a mini one to hold the cards included in that stage
     private ArrayList<ArrayList<Card>> questTotalStagesSponsor = new ArrayList<>();
+
+    // --- Champion Knight / Win condition ---
+    private ArrayList<Player> gameWinners = new ArrayList<>();
+    private boolean isGameOver = false;
+
+    // --- Tournament tie-breaking (Round 2) ---
+    private int tournamentRound = 1;
+    private ArrayList<Player> tiedTournamentPlayers = new ArrayList<>();
+
+    // --- Sponsor rotation (declining sponsorship) ---
+    private int nextSponsorId = -1;
+    private ArrayList<Integer> sponsorDeclinedIds = new ArrayList<>();
+
+    // --- Mordred special foe ---
+    private boolean mordredActive = false;
+
+    // --- Free bids (for test stage bidding) ---
+    private int effectiveBidAmount = 0; // bid amount minus free bids from Ally cards
+
+    // --- Validation feedback for the frontend ---
+    private String validationMessage = "";
 
 
     public void setTotalNumPlayers(int num){
@@ -174,27 +193,48 @@ public class Game {
 
         if(playersInStory.get(NumberOfPlayersInTournament-1).getId() == Integer.parseInt(playerID)){
             Tournament card = (Tournament) currentStoryCard;
-            if (playersInStory.size()>0) {
-                for(Player p: players){
-                    // declare the winners
-                    if(p.getTournamentScore() >= highest){
-                        int playerShields = p.getShields();
-                        PlayWinner.add(p);
 
-                        System.out.println("Player " + p.getName() + " won the tournament, and will get shields equivalent to : ");
-                        System.out.println("Num of people at the beginning of the tournament '" + NumberOfPlayersInTournament + "' + the card's number of bonus shields '" + card.getBonusShields() + "'" );
-
-                        playerShields+= NumberOfPlayersInTournament + card.getBonusShields();
-                        p.setShields(playerShields);
-                        System.out.println("Player "+ p.getName()+ " has " + p.getShields() + " shields");
-
-                    }else{
-                        System.out.println("Player "+ p.getName()+ " has " + p.getShields() + " shields");
-                    }
-                    //reset player's tournament score
-                    p.setTournamentScore(0);
+            // Collect tied players (those matching the highest score)
+            ArrayList<Player> roundWinners = new ArrayList<>();
+            for(Player p : playersInStory){
+                if(p.getTournamentScore() >= highest && p.getTournamentScore() > 0){
+                    roundWinners.add(p);
                 }
             }
+
+            if(roundWinners.size() > 1 && tournamentRound == 1){
+                // TIE after Round 1 — initiate Round 2 with tied players only
+                System.out.println("Tournament tie! Initiating Round 2 for " + roundWinners.size() + " tied players.");
+                tournamentRound = 2;
+                tiedTournamentPlayers.clear();
+                tiedTournamentPlayers.addAll(roundWinners);
+                for(Player p : players){ p.setTournamentScore(0); }
+                playersInStory.clear();
+                playersInStory.addAll(tiedTournamentPlayers);
+                highest = 0;
+                // Draw one new adventure card for each tied player
+                for(Player p : tiedTournamentPlayers){
+                    drawAdventureCard(Integer.toString(p.getId()));
+                }
+                PlayWinner.clear();
+                return; // frontend will ask tied players to resubmit
+            }
+
+            // Round 2 (or no tie in Round 1) — determine final winners
+            if(roundWinners.isEmpty()){
+                // Fallback: anyone who joined gets 1 shield
+                roundWinners.addAll(playersInStory);
+            }
+            for(Player p : roundWinners){
+                PlayWinner.add(p);
+                p.setShields(p.getShields() + NumberOfPlayersInTournament + card.getBonusShields());
+                System.out.println("Player " + p.getName() + " won the tournament with "
+                        + p.getShields() + " shields.");
+                checkRankAdvancement(p);
+            }
+            for(Player p : players){ p.setTournamentScore(0); }
+            tournamentRound = 1;
+            tiedTournamentPlayers.clear();
         }
     }
 
@@ -385,45 +425,34 @@ public class Game {
      * @return
      */
     public Card drawStoryCard(String ID){
-        PlayWinner.clear();//this for the frontend
+        PlayWinner.clear();
         playersInStory.clear();
-        Card card = null;
+        sponsorDeclinedIds.clear();
+        mordredActive = false;
+        highest = 0;
+        tournamentRound = 1;
+        tiedTournamentPlayers.clear();
 
         if(storyCardList.size() == 0){
-            System.out.println("Story card list is empty, reshuffling the discard pile to use it !");
-            //shuffle discarded pile and move it to story deck + give 1 card
+            System.out.println("Story card list is empty, reshuffling the discard pile.");
             Collections.shuffle(discardedStoryCardList);
             storyCardList.clear();
             storyCardList.addAll(discardedStoryCardList);
             discardedStoryCardList.clear();
         }
 
-        for(int i = 0; i <storyCardList.size(); i++){
-            if(storyCardList.get(i).getCardType() == STORY_QUEST){
-                card = storyCardList.get(i);
-                discardedStoryCardList.add(storyCardList.get(i));
-                storyCardList.remove(i);
-                break;
+        // Draw the top card of the shuffled deck
+        Card card = storyCardList.get(0);
+        discardedStoryCardList.add(card);
+        storyCardList.remove(0);
 
-            }else if(storyCardList.get(i).getCardType() == STORY_TOURNAMENT){
-                // do nothing for now
-                //System.out.println("** got tournament card discarding from story deck *******");
-                card = storyCardList.get(i);
-                discardedStoryCardList.add(storyCardList.get(i));
-                storyCardList.remove(i);
-                break;
-            }else{
-                //this is for event
-                //System.out.println("** got event card discarding from story deck *******");
-                card = storyCardList.get(i);
-                discardedStoryCardList.add(storyCardList.get(i));
-                storyCardList.remove(i);
-                break;
-            }
+        currentStoryCard = card;
+        currentPlayer = Integer.parseInt(ID);
+
+        // For quest cards, initialise sponsor rotation starting with the drawing player
+        if(card.getCardType() == STORY_QUEST){
+            nextSponsorId = Integer.parseInt(ID);
         }
-        currentStoryCard = card;//this for the frontend
-
-        currentPlayer = Integer.parseInt(ID);//this for the frontend
 
         return card;
     }
@@ -821,18 +850,43 @@ public class Game {
         }
 
     }
-    //front end version
+    //front end version — supports sponsor rotation when a player declines
     public void sponsorOfQuest(String player){
-        if(player == null){
-            discardedStoryCardList.add(currentStoryCard);
-            currentStoryCard = null;
+        // "null" or "-1" means the current candidate declined
+        if(player == null || player.equals("null") || player.equals("-1")){
+            int decliningId = nextSponsorId;
+            sponsorDeclinedIds.add(decliningId);
+
+            // Advance clockwise to next candidate
+            int nextId = (decliningId + 1) % totalNumPlayers;
+
+            // Skip players who already declined
+            int attempts = 0;
+            while(sponsorDeclinedIds.contains(nextId) && attempts < totalNumPlayers){
+                nextId = (nextId + 1) % totalNumPlayers;
+                attempts++;
+            }
+
+            if(attempts >= totalNumPlayers){
+                // All players declined — discard quest card
+                discardedStoryCardList.add(currentStoryCard);
+                currentStoryCard = null;
+                nextSponsorId = -1;
+                System.out.println("All players declined sponsorship. Quest discarded.");
+            } else {
+                nextSponsorId = nextId;
+                System.out.println("Sponsorship offered to player " + nextId);
+            }
             return;
         }
-        //keeping track of currentplayer of the game and storyevent
+
+        // Player accepted sponsorship
         currentPlayer = Integer.parseInt(player);
         currentStoryPlayer = currentPlayer;
+        nextSponsorId = -1;
+        sponsorDeclinedIds.clear();
 
-        Quest card= (Quest) currentStoryCard;
+        Quest card = (Quest) currentStoryCard;
         card.setSponsor(players.get(Integer.parseInt(player)));
         currentStoryCard = card;
     }
@@ -909,8 +963,16 @@ public class Game {
         //when only one player left and bid more than the sponsor("=" is for the 2 player game)
         else if(playersInStory.size() == 1 && bid >= 3){
             TestWinnerPlayerId = playersInStory.get(0).getId();
-
             System.out.println("TestWinnerPlayerId: "+TestWinnerPlayerId);
+
+            // Apply free bids: reduce cards the winner needs to discard
+            Player testWinner = playersInStory.get(0);
+            int freeBids = calculatePlayerFreeBids(testWinner);
+            effectiveBidAmount = Math.max(0, bid - freeBids);
+            if(freeBids > 0){
+                System.out.println(testWinner.getName() + " has " + freeBids
+                    + " free bids — only needs to discard " + effectiveBidAmount + " cards.");
+            }
 
             initializePlayerBattlePointsList();
             questStartFight();
@@ -946,28 +1008,70 @@ public class Game {
             }
             String input = choosenCards;
             String[] stageValues = input.split(" ");
+            boolean hasTestCard = false;
             for (var k=0; k< card.getNoOfStages(); k++){
                 String[] Values = stageValues[k].split(",");
                 for(var l =0; l < Values.length; l++){
-                    int cardRow = Integer.parseInt(Values[l]);
-                    questTotalStagesSponsor.get(k).add(card.getSponsor().getInHandCards().get(cardRow));
-                    //discardAdventureCard();
+                    int cardRow = Integer.parseInt(Values[l].trim());
+                    Card chosen = card.getSponsor().getInHandCards().get(cardRow);
 
-                    //for the test card
-                    if(card.getSponsor().getInHandCards().get(cardRow).getCardType() == ADVENTURE_TEST){
-                        System.out.println("we have a test card");
-                        testBidMessage = "Bid minimum: "+3;
+                    // Enforce: only 1 Test card per quest
+                    if(chosen.getCardType() == ADVENTURE_TEST){
+                        if(hasTestCard){
+                            validationMessage = "Only 1 Test card allowed per quest. Extra test card ignored.";
+                            System.out.println(validationMessage);
+                            continue;
+                        }
+                        hasTestCard = true;
+                        testBidMessage = "Bid minimum: " + 3;
                         test = true;
                     }
+
+                    // Enforce: no duplicate weapon types in the same stage
+                    if(chosen.getCardType() == ADVENTURE_WEAPON){
+                        boolean duplicate = false;
+                        for(Card existing : questTotalStagesSponsor.get(k)){
+                            if(existing.getCardType() == ADVENTURE_WEAPON &&
+                               existing.getName().equals(chosen.getName())){
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if(duplicate){
+                            validationMessage = "Duplicate weapon '" + chosen.getName() + "' in stage " + (k+1) + " ignored.";
+                            System.out.println(validationMessage);
+                            continue;
+                        }
+                    }
+
+                    questTotalStagesSponsor.get(k).add(chosen);
                 }
             }
             for(var p =0; p < questTotalStagesSponsor.size(); p++){
-                int points =  calculateStageBattlePoints(questTotalStagesSponsor.get(p));
+                int points = calculateStageBattlePoints(questTotalStagesSponsor.get(p));
                 if(points == 0){
                     TestCardStageNo = p;
                     System.out.println("TestCardStageNo: "+TestCardStageNo);
                 }
                 sponsorStageBattlePoints.add(points);
+            }
+
+            // Enforce: each non-test stage must have strictly more BP than previous non-test stage
+            int prevPoints = 0;
+            for(int p = 0; p < sponsorStageBattlePoints.size(); p++){
+                int pts = sponsorStageBattlePoints.get(p);
+                if(pts > 0){ // skip test stages (0 BP)
+                    if(pts <= prevPoints){
+                        validationMessage = "Stage " + (p+1) + " must have more battle points than stage " + p + ". Quest setup reset.";
+                        System.out.println(validationMessage);
+                        questTotalStagesSponsor.clear();
+                        sponsorStageBattlePoints.clear();
+                        test = false;
+                        TestCardStageNo = -1;
+                        return;
+                    }
+                    prevPoints = pts;
+                }
             }
         }else{
             currentStoryPlayer = Integer.parseInt(player);
@@ -992,7 +1096,7 @@ public class Game {
                         System.out.println("stageValues "+stageValues[i]);
                         for(var l =0; l < Values.length; l++){
                             System.out.println("Values "+Values[l]);
-                            int cardRow = Integer.parseInt(Values[l]);
+                            int cardRow = Integer.parseInt(Values[l].trim());
                             if(test && i == TestCardStageNo){
                                 System.out.println("TestCardStageNo: "+TestCardStageNo);
                                 System.out.println("Got a test card in this stage so didn't add anything");
@@ -1047,7 +1151,14 @@ public class Game {
                 }
                 if(!skip){
                     System.out.println("stage: "+stage);
-                    //draw an ad card for the current player p
+
+                    // Check if any card in this stage is a Mordred foe — mark it active
+                    for(Card sc : questTotalStagesSponsor.get(stage)){
+                        if(sc.getCardType() == ADVENTURE_FOE && sc.getName().equals("Mordred")){
+                            mordredActive = true;
+                            System.out.println("Mordred foe encountered! Sponsor may remove an ally from a player.");
+                        }
+                    }
 
                     System.out.println(" Drawing an Adventure card for stage " + (stage + 1) + " for " + playersInStory.get(i).getName());
                     drawAdventureCard(Integer.toString(playersInStory.get(i).getId())); // handing out an adventure card before each stage is fought
@@ -1078,16 +1189,9 @@ public class Game {
                         System.out.println(playersInStory.get(i).getName() + "'s points = " + playerStagePoints);
                         System.out.println("=> " + playersInStory.get(i).getName() + " lost in stage " + (stage + 1));
 
-                        //removing amour when the player loses
+                        // Amour is NOT discarded on stage loss — it stays until quest end (official rules)
+                        // Only discard weapons of the losing player
                         for (int x=0; x<playersInStory.size();x++){
-                            for (int j=0; j<playersInStory.get(x).getInPlayCards().size(); j++){
-                                Card ac= playersInStory.get(x).getInPlayCards().get(j);
-                                if(ac.getCardType() == ADVENTURE_AMOUR){
-                                    discardedAdventureCardList.add(ac);
-                                    playersInStory.get(x).getInPlayCards().remove(ac);
-                                }
-                            }
-                            //remove weapons when the player loses
                             for (int k=0; k< playersInStory.get(x).getQuestTotalStagesPlayers().size(); k++){
                                 ArrayList<Weapon> aw = (playersInStory.get(x).getQuestTotalStagesPlayers().get(k));
                                 discardedAdventureCardList.addAll(aw);
@@ -1172,21 +1276,16 @@ public class Game {
                 if ((stage+1)==totalStages){
                     skip = false;
                     System.out.println(" Player " + playersInStory.get(i).getName() + " won the quest !");
-                    PlayWinner.add( playersInStory.get(i));
-                    System.out.println(playersInStory.get(i).getName() + "'s current # of shields = " + playersInStory.get(i).getShields());
-                    System.out.println("Adding " + totalStages + " shields to " + playersInStory.get(i).getName());
-                    playersInStory.get(i).setShields(playersInStory.get(i).getShields() + totalStages);
-                    System.out.println(playersInStory.get(i).getName() + "'s current # of shields = " + playersInStory.get(i).getShields());
-
-                    int currShields = playersInStory.get(i).getShields();
-                    currShields += kingsRecognitionEventShields;
-                    if (kingsRecognitionEventShields > 0){
-                        System.out.println("Adding " + kingsRecognitionEventShields + " shields from the King's Recognition Event !");
+                    PlayWinner.add(playersInStory.get(i));
+                    int earned = totalStages + kingsRecognitionEventShields;
+                    if(kingsRecognitionEventShields > 0){
+                        System.out.println("Adding " + kingsRecognitionEventShields + " bonus shields from King's Recognition!");
                     }
-                    playersInStory.get(i).setShields(currShields);
-                    System.out.println(" Player " + playersInStory.get(i).getName() + " now has " + playersInStory.get(i).getShields());
+                    playersInStory.get(i).setShields(playersInStory.get(i).getShields() + earned);
                     kingsRecognitionEventShields = 0;
-
+                    System.out.println(playersInStory.get(i).getName() + " now has " + playersInStory.get(i).getShields() + " shields.");
+                    // Check for rank promotion / win condition
+                    checkRankAdvancement(playersInStory.get(i));
                 }
 
             }
@@ -1210,23 +1309,25 @@ public class Game {
          * player(s) who lost already were taken off this list
          */
 
-        //remove amours for all remaining winning players
-        for (int i=0; i<playersInStory.size();i++){
-            for (int j=0; j<playersInStory.get(i).getInPlayCards().size(); j++){
-                Card ac= playersInStory.get(i).getInPlayCards().get(j);
-                if(ac.getCardType() == ADVENTURE_AMOUR){
+        // Discard Amour from ALL players at quest end (official rules: amour lasts full quest)
+        for (Player p : players) {
+            p.getInPlayCards().removeIf(ac -> {
+                if (ac.getCardType() == ADVENTURE_AMOUR) {
                     discardedAdventureCardList.add(ac);
-                    playersInStory.get(i).getInPlayCards().remove(ac);
+                    return true;
                 }
-            }
-            //remove weapons for all remaining winning players
+                return false;
+            });
+        }
+
+        // Discard remaining weapon selections for winning players still in list
+        for (int i=0; i<playersInStory.size();i++){
             for (int k=0; k< playersInStory.get(i).getQuestTotalStagesPlayers().size(); k++){
                 ArrayList<Weapon> aw = (playersInStory.get(i).getQuestTotalStagesPlayers().get(k));
                 discardedAdventureCardList.addAll(aw);
                 aw.clear();
             }
         }
-
 
         playersInStory.clear();
 
@@ -1412,20 +1513,15 @@ public class Game {
      */
     public void handOutAdventureCards(){
         Collections.shuffle(adventureCardList);
-        for(var j=0; j < totalNumPlayers; j++){
-            for(var i = 0; i < 12; i++){
-                Card ac = adventureCardList.get(i);
+        // Always remove from index 0 so every player gets exactly 12 unique cards
+        // in order from the top of the shuffled deck — no skipping.
+        for(int j = 0; j < totalNumPlayers; j++){
+            for(int i = 0; i < 12; i++){
+                Card ac = adventureCardList.get(0);
                 players.get(j).getInHandCards().add(ac);
-//                System.out.println(players.get(j).getName()+" =  "+ ac.toString());
-                // System.out.println("Removing after "+(players.get(j).getName() +" = "+  adventureCardList.get(i)));
-                adventureCardList.remove(i);
+                adventureCardList.remove(0);
             }
-//            for(var k =0; k < 12; k++){
-//                System.out.println("Removing after "+(players.get(j).getName() +" = "+  adventureCardList.get(k)));
-//                adventureCardList.remove(k);
-//            }
         }
-
     }
     public void initializePlayers(Player p1, Player p2){
         p1.setId(1);
@@ -1456,26 +1552,24 @@ public class Game {
     }
 
     public void createDecks(){
-
-        //making card for demo
-        storyCardList.add(buildStoryCard(STORY_EVENT, "Chivalrous Deed", -1, null, "Player(s) with both lowest rank and least amount of shields, receives 3 shields", -1, 6));
-        storyCardList.add(buildStoryCard(STORY_TOURNAMENT, "Tournament at Camelot", -1, null, null, 3, -1));
-        storyCardList.add(buildStoryCard(STORY_QUEST, "Boar Hunt", 2, "Boar", null, -1, -1));
-        reverse(storyCardList);
-
+        // Clear static lists first so a fresh game never inherits cards from a previous one
+        adventureCardList.clear();
+        storyCardList.clear();
 
         CardFactory adventureCardDeck = new AdventureCardFactory();
-//        CardFactory storyCardDeck = new StoryCardFactory();
+        CardFactory storyCardDeck = new StoryCardFactory();
 
         adventureCardList.addAll(adventureCardDeck.orderCard("weapons"));
         adventureCardList.addAll(adventureCardDeck.orderCard("foes"));
         adventureCardList.addAll(adventureCardDeck.orderCard("allies"));
         adventureCardList.addAll(adventureCardDeck.orderCard("amours"));
         adventureCardList.addAll(adventureCardDeck.orderCard("test"));
-//
-//        storyCardList.addAll(storyCardDeck.orderCard("quest"));
-//        storyCardList.addAll(storyCardDeck.orderCard("event"));
-//        storyCardList.addAll(storyCardDeck.orderCard("tournament"));
+
+        // Full 28-card story deck, shuffled
+        storyCardList.addAll(storyCardDeck.orderCard("quest"));
+        storyCardList.addAll(storyCardDeck.orderCard("event"));
+        storyCardList.addAll(storyCardDeck.orderCard("tournament"));
+        Collections.shuffle(storyCardList);
     }
 
     /**
@@ -1880,6 +1974,90 @@ public class Game {
     }
 
 
+    /**
+     * Check if a player's shield count qualifies them for a rank promotion.
+     * Handles overflow shields carrying forward to the next rank.
+     * Win condition: Champion Knight with 10+ shields → Knight of the Round Table.
+     */
+    public void checkRankAdvancement(Player p){
+        Rank rank = p.getRankCard();
+        int shields = p.getShields();
+
+        if(rank.getCardType() == RANK_SQUIRE && shields >= 5){
+            int overflow = shields - 5;
+            p.setShields(overflow);
+            p.setRankCard(new Rank("Knight", RANK_KNIGHT, 10));
+            p.setBattlePoints(10);
+            System.out.println(p.getName() + " promoted to Knight!");
+            checkRankAdvancement(p); // overflow might trigger further promotion
+        } else if(rank.getCardType() == RANK_KNIGHT && shields >= 7){
+            int overflow = shields - 7;
+            p.setShields(overflow);
+            p.setRankCard(new Rank("Champion Knight", RANK_CHAMPION_KNIGHT, 20));
+            p.setBattlePoints(20);
+            System.out.println(p.getName() + " promoted to Champion Knight!");
+            checkRankAdvancement(p);
+        } else if(rank.getCardType() == RANK_CHAMPION_KNIGHT && shields >= 10){
+            // Player has won the game!
+            if(!gameWinners.contains(p)){
+                gameWinners.add(p);
+                System.out.println(p.getName() + " is now a Knight of the Round Table! GAME OVER!");
+            }
+            isGameOver = true;
+            status = GameStatus.FINISHED;
+        }
+    }
+
+    /**
+     * Sum all free bids provided by Ally cards currently in a player's in-play cards.
+     */
+    public int calculatePlayerFreeBids(Player p){
+        int total = 0;
+        for(Card c : p.getInPlayCards()){
+            if(c.getCardType() == ADVENTURE_ALLY){
+                Ally ally = (Ally) c;
+                total += ally.getFreeBids();
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Mordred effect: remove a named ally from a target player's in-play cards.
+     * Called when a Mordred foe is used as a stage card and the sponsor names an ally.
+     */
+    public void removeMordredAlly(String targetPlayerId, String allyIndex){
+        Player target = null;
+        for(Player p : players){
+            if(p.getId() == Integer.parseInt(targetPlayerId)){
+                target = p;
+                break;
+            }
+        }
+        if(target == null) return;
+
+        int idx = Integer.parseInt(allyIndex);
+        if(idx < 0 || idx >= target.getInPlayCards().size()) return;
+
+        Card ally = target.getInPlayCards().get(idx);
+        if(ally.getCardType() == ADVENTURE_ALLY){
+            discardedAdventureCardList.add(ally);
+            target.getInPlayCards().remove(idx);
+            System.out.println("Mordred removed " + ally.getName() + " from " + target.getName());
+        }
+        mordredActive = false;
+    }
+
+    /**
+     * Returns rank level for comparison: Squire=1, Knight=2, Champion Knight=3.
+     */
+    private int getRankLevel(Player p){
+        CardType rt = p.getRankCard().getCardType();
+        if(rt == RANK_CHAMPION_KNIGHT) return 3;
+        if(rt == RANK_KNIGHT) return 2;
+        return 1;
+    }
+
     public void parseEventCardFrontend(String eventsName){
 
         System.out.println("* * * Parsing an event card * * *");
@@ -1956,15 +2134,10 @@ public class Game {
      */
 
     public void performPlague(Player drawingPlayer){
-
-        int currentShields = drawingPlayer.getShields();
-
-        if(currentShields >= 2 ){
-            System.out.println("current player = "+ drawingPlayer.getName() + "\n current no of shields (after loosing 2) =  "+ (currentShields-2));
-            return ;
-        }
-        System.out.println("Not enough shields to perform the PLAGUE Event!");
-        System.out.println("current player = "+ drawingPlayer.getName() + "\n current no of shields=  "+currentShields);
+        // Official rule: drawer loses 2 shields, minimum 0
+        int newShields = Math.max(0, drawingPlayer.getShields() - 2);
+        drawingPlayer.setShields(newShields);
+        System.out.println(drawingPlayer.getName() + " loses 2 shields from Plague. Now has " + newShields);
     }
 
     public void performPox(Player drawingPlayer){
@@ -1987,74 +2160,80 @@ public class Game {
     }
 
     public void performChivalrousDeed(){
-
+        // Official rule: player(s) with BOTH lowest rank AND fewest shields gain 3 shields
         System.out.println("Performing the Chivalrous Deed Event");
-        Player player = players.get(0);
-        int min = players.get(0).getShields();
 
-        for(Player p: players){
-            if (p.getShields() < player.getShields()){
-                min = p.getShields();
+        // Step 1: find the lowest rank level
+        int minRank = Integer.MAX_VALUE;
+        for(Player p : players){
+            int lvl = getRankLevel(p);
+            if(lvl < minRank) minRank = lvl;
+        }
+
+        // Step 2: among lowest-ranked players, find fewest shields
+        int minShields = Integer.MAX_VALUE;
+        for(Player p : players){
+            if(getRankLevel(p) == minRank && p.getShields() < minShields){
+                minShields = p.getShields();
             }
         }
 
-        for(Player p: players){
-            if(p.getShields() == min){
-                int currentShields = p.getShields();
-                currentShields += 3;
-                p.setShields(currentShields);
-                System.out.println("Player "+ p.getName()+" received 3 extra shields");
+        // Step 3: give 3 shields to those who match both conditions
+        for(Player p : players){
+            if(getRankLevel(p) == minRank && p.getShields() == minShields){
+                p.setShields(p.getShields() + 3);
+                System.out.println(p.getName() + " received 3 shields from Chivalrous Deed. Now has " + p.getShields());
+                checkRankAdvancement(p);
             }
         }
-
     }
 
     public void performCourtCalledToCamelot() {
-
-        for (int h=0 ; h<players.size(); h++){
-            for (int i=0; i<players.get(h).getInPlayCards().size(); i++){
-                if (players.get(h).getInPlayCards().get(i).getCardType() == ADVENTURE_ALLY){
-                    discardedAdventureCardList.add(players.get(h).getInPlayCards().get(i));
-                    players.get(h).getInPlayCards().remove(players.get(h).getInPlayCards().get(i));
+        // Official rule: all Allies currently in play for every player are discarded
+        for (Player p : players) {
+            p.getInPlayCards().removeIf(ac -> {
+                if (ac.getCardType() == ADVENTURE_ALLY) {
+                    discardedAdventureCardList.add(ac);
+                    return true;
                 }
-            }
+                return false;
+            });
         }
-//        for (Player p : players) {
-//            for (AdventureCard ac : p.getInPlayCards()) {
-//                if (ac.getCardType() == ADVENTURE_ALLY) {
-//                    discardedAdventureCardList.add(ac);
-//                    p.getInPlayCards().remove(ac);
-//                }
-//            }
-//        }
-
     }
 
 
     public void performKingsCallToArms() {
-        int totalWeapon =0;
-        for (Player p : players) {
+        // Find the highest rank level among all players
+        int maxRankLevel = 0;
+        for(Player p : players){
+            int lvl = getRankLevel(p);
+            if(lvl > maxRankLevel) maxRankLevel = lvl;
+        }
 
-            for (Card ac : p.getInHandCards()) {
-                if (ac.getCardType() == ADVENTURE_WEAPON) {
-                    //ask which weapon to discard
-                    discardedAdventureCardList.add(ac);
-                    p.getInHandCards().remove(ac);
-                    System.out.println("removed weapon "+ ac.getName()+ " player "+ p.getName());
-                    totalWeapon++;
+        // Only the highest-ranked player(s) must discard
+        for(Player p : players){
+            if(getRankLevel(p) != maxRankLevel) continue;
+
+            boolean discardedWeapon = false;
+            ArrayList<Card> hand = p.getInHandCards();
+            for(int i = 0; i < hand.size(); i++){
+                if(hand.get(i).getCardType() == ADVENTURE_WEAPON){
+                    discardedAdventureCardList.add(hand.get(i));
+                    hand.remove(i);
+                    System.out.println(p.getName() + " discarded a weapon for King's Call to Arms.");
+                    discardedWeapon = true;
                     break;
                 }
             }
-
-            if(totalWeapon ==0){
+            if(!discardedWeapon){
                 int foeCount = 0;
-                for (Card ac : p.getInHandCards()) {
-                    if (ac.getCardType() == ADVENTURE_FOE && foeCount < 2) {
-                        //ask which foe to discard
-                        discardedAdventureCardList.add(ac);
-                        p.getInHandCards().remove(ac);
-                        System.out.println("removed foe "+ ac.getName()+ " player "+ p.getName());
+                for(int i = 0; i < hand.size() && foeCount < 2; i++){
+                    if(hand.get(i).getCardType() == ADVENTURE_FOE){
+                        discardedAdventureCardList.add(hand.get(i));
+                        hand.remove(i);
+                        i--;
                         foeCount++;
+                        System.out.println(p.getName() + " discarded a foe for King's Call to Arms.");
                     }
                 }
             }
@@ -2063,10 +2242,18 @@ public class Game {
 
 
     public void performQueensFavor() {
-        // Each player shall receive 2 cards - Ranks omitted as there are only a Squire rank
+        // Official rule: lowest-ranked player(s) immediately draw 2 Adventure Cards
+        int minRank = Integer.MAX_VALUE;
+        for(Player p : players){
+            int lvl = getRankLevel(p);
+            if(lvl < minRank) minRank = lvl;
+        }
         for (Player p : players) {
-            for (int i = 0; i < 2; i++) {
-                drawAdventureCard(Integer.toString(p.getId()));
+            if(getRankLevel(p) == minRank){
+                for (int i = 0; i < 2; i++) {
+                    drawAdventureCard(Integer.toString(p.getId()));
+                }
+                System.out.println(p.getName() + " drew 2 cards from Queen's Favor.");
             }
         }
     }

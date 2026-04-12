@@ -13,11 +13,20 @@ public class Ally extends AdventureCard {
 
     private int battlePoints;
     private int specialBattlePoints;
+    private int freeBids; // number of free bids this ally provides in test stages
 
     public Ally(String name, CardType type, int battlePoints, int specialBattlePoints){
         super(name, type);
         this.battlePoints = battlePoints;
         this.specialBattlePoints = specialBattlePoints;
+        this.freeBids = 0;
+    }
+
+    public Ally(String name, CardType type, int battlePoints, int specialBattlePoints, int freeBids){
+        super(name, type);
+        this.battlePoints = battlePoints;
+        this.specialBattlePoints = specialBattlePoints;
+        this.freeBids = freeBids;
     }
 
     public String toString(){

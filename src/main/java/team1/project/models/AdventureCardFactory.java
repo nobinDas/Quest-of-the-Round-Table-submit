@@ -11,13 +11,13 @@ public class AdventureCardFactory extends CardFactory{
         ArrayList<Card> CardList = new ArrayList<>();
         if(card.equals("weapons")){
             for(int i = 0; i < 2 ; i++){
-                CardList.add(new Weapon("Excalibur", CardType.ADVENTURE_WEAPON, 30));
+                CardList.add(new Weapon("Excalibur", CardType.ADVENTURE_WEAPON, 20));
             }
             for(int i = 0; i < 6 ; i++){
-                CardList.add(new Weapon("Lance", CardType.ADVENTURE_WEAPON, 20));
+                CardList.add(new Weapon("Lance", CardType.ADVENTURE_WEAPON, 10));
             }
             for(int i = 0; i < 8 ; i++){
-                CardList.add(new Weapon("Battle-ax", CardType.ADVENTURE_WEAPON, 15));
+                CardList.add(new Weapon("Battle-ax", CardType.ADVENTURE_WEAPON, 8));
             }
             for(int i = 0; i < 16 ; i++){
                 CardList.add(new Weapon("Sword", CardType.ADVENTURE_WEAPON, 10));
@@ -26,7 +26,7 @@ public class AdventureCardFactory extends CardFactory{
                 CardList.add(new Weapon("Horse", CardType.ADVENTURE_WEAPON, 10));
             }
             for(int i = 0; i < 6 ; i++){
-                CardList.add(new Weapon("Dagger", CardType.ADVENTURE_WEAPON, 5));
+                CardList.add(new Weapon("Dagger", CardType.ADVENTURE_WEAPON, 3));
             }
         }
         if(card.equals("foes")){
@@ -58,11 +58,9 @@ public class AdventureCardFactory extends CardFactory{
             for(int i = 0; i < 4 ; i++){
                 CardList.add(new Foe("Boar", CardType.ADVENTURE_FOE, 15, 5));
             }
-
             for(int i = 0; i < 8 ; i++){
                 CardList.add(new Foe("Thieves", CardType.ADVENTURE_FOE, 5, 0));
             }
-
         }
         if(card.equals("allies")){
             CardList.add(new Ally("Sir Galahad", CardType.ADVENTURE_ALLY, 0, 15));
@@ -72,6 +70,10 @@ public class AdventureCardFactory extends CardFactory{
             CardList.add(new Ally("Sir Gawain", CardType.ADVENTURE_ALLY, 20, 10));
             CardList.add(new Ally("Sir Percival", CardType.ADVENTURE_ALLY, 20, 5));
             CardList.add(new Ally("King Pellinore", CardType.ADVENTURE_ALLY, 0, 10));
+            // Queen Guinevere provides 3 free bids in test stages (per game rules)
+            CardList.add(new Ally("Queen Guinevere", CardType.ADVENTURE_ALLY, 0, 0, 3));
+            CardList.add(new Ally("Queen Iseult", CardType.ADVENTURE_ALLY, 0, 0));
+            CardList.add(new Ally("Merlin", CardType.ADVENTURE_ALLY, 0, 0));
         }
         if(card.equals("amours")){
             for(int i = 0; i < 8 ; i++){
@@ -81,6 +83,15 @@ public class AdventureCardFactory extends CardFactory{
         if(card.equals("test")){
             for(int i = 0; i < 2 ; i++){
                 CardList.add(new Test("Test of Valor", CardType.ADVENTURE_TEST));
+            }
+            for(int i = 0; i < 2 ; i++){
+                CardList.add(new Test("Test of Temptation", CardType.ADVENTURE_TEST));
+            }
+            for(int i = 0; i < 2 ; i++){
+                CardList.add(new Test("Test of Morgan Le Fey", CardType.ADVENTURE_TEST));
+            }
+            for(int i = 0; i < 2 ; i++){
+                CardList.add(new Test("Test of the Questing Beast", CardType.ADVENTURE_TEST));
             }
         }
         return CardList;

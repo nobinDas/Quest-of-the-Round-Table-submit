@@ -3,6 +3,7 @@ package team1.project.models;
 public enum CardType {
     RANK_SQUIRE,
     RANK_KNIGHT,
+    RANK_CHAMPION_KNIGHT,
     ADVENTURE_FOE,
     ADVENTURE_WEAPON,
     ADVENTURE_ALLY,

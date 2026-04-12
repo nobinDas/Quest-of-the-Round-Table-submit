@@ -132,6 +132,12 @@ public class GameService {
         return game;
     }
 
+    public Game removeMordredAlly(String targetPlayer, String allyIndex){
+        Game game = (Game) GameStorage.getInstance().getGames().values().toArray()[0];
+        game.removeMordredAlly(targetPlayer, allyIndex);
+        return game;
+    }
+
 
 
     public Game connectToGame(Player player, String gameId) throws InvalidParamException, InvalidGameException {
